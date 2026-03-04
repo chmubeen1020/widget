@@ -345,6 +345,13 @@ useEffect(() => {
       }, 6000);
     }
   };
+useEffect(() => {
+  const onMsg = (e) => {
+    if (e.data?.type === "CW_OPEN") setOpen(true);
+  };
+  window.addEventListener("message", onMsg);
+  return () => window.removeEventListener("message", onMsg);
+}, []);
 
   // ------- Visitor ID persistence -------
   const getStoredVisitorId = () => {

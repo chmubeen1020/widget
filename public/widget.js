@@ -5,7 +5,6 @@
 
   var ORIGIN = "https://widget-one-beryl.vercel.app";
 
-  // iframe (initially click-through)
   var iframe = document.createElement("iframe");
   iframe.id = "cw-iframe";
   iframe.src = ORIGIN + "/embed/widget?key=" + encodeURIComponent(tenantKey);
@@ -19,7 +18,6 @@
   iframe.style.background = "transparent";
   iframe.style.pointerEvents = "none"; // start click-through
 
-  // activator button area (always clickable)
   var activator = document.createElement("div");
   activator.id = "cw-activator";
   activator.style.position = "fixed";
@@ -27,24 +25,36 @@
   activator.style.bottom = "16px";
   activator.style.width = "80px";
   activator.style.height = "80px";
-  activator.style.zIndex = "2147483647";
+  activator.style.zIndex = "2147483648"; // ensure ABOVE iframe
   activator.style.cursor = "pointer";
   activator.style.background = "transparent";
 
-  // Toggle interactions
-  activator.addEventListener("click", function () {
-    iframe.style.pointerEvents = "auto"; // allow clicks inside widget
-    // tell widget "open"
+  function openWidget() {
+    // allow clicks inside iframe
+    iframe.style.pointerEvents = "auto";
+
+    // IMPORTANT: stop blocking clicks
+    activator.style.pointerEvents = "none"; // (or activator.style.display = "none")
+
+    // tell widget to open (requires listener inside widget)
     iframe.contentWindow &&
       iframe.contentWindow.postMessage({ type: "CW_OPEN" }, ORIGIN);
+  }
+
+  function closeWidget() {
+    iframe.style.pointerEvents = "none";
+    activator.style.pointerEvents = "auto";
+  }
+
+  activator.addEventListener("click", function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    openWidget();
   });
 
-  // Allow widget to tell host "close" (so iframe becomes click-through again)
   window.addEventListener("message", function (e) {
     if (e.origin !== ORIGIN) return;
-    if (e.data && e.data.type === "CW_CLOSE") {
-      iframe.style.pointerEvents = "none";
-    }
+    if (e.data && e.data.type === "CW_CLOSE") closeWidget();
   });
 
   document.body.appendChild(iframe);
