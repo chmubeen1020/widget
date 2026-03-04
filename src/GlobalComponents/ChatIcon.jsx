@@ -55,6 +55,14 @@ function pickFirst(...vals) {
   return undefined;
 }
 
+function normalizeMediaUrl(url) {
+  if (!url) return "";
+  // If your page is https, force https for media URLs to avoid Mixed Content
+  if (window.location.protocol === "https:") {
+    return url.replace(/^http:\/\//i, "https://");
+  }
+  return url;
+}
 /** Position helpers */
 function getPositionStyles(position = "bottom_right") {
   const btn = { bottom: 24, right: 24 };
@@ -171,7 +179,7 @@ useEffect(() => {
       if (!cancelled) {
         setWidgetCfg(widget);
         setRemoteTheme(theme);
-        setChatIconUrl(json?.data?.chat_icon_url || "");
+        setChatIconUrl(normalizeMediaUrl(json?.data?.chat_icon_url || ""));
       }
     } catch (err) {
       console.error("[Widget] Theme fetch failed:", err);
