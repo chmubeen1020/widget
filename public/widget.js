@@ -18,31 +18,30 @@
   iframe.style.border = "none";
   iframe.style.zIndex = "2147483647";
   iframe.style.background = "transparent";
-  iframe.style.pointerEvents = "none"; // default: don't block host page
+  iframe.style.pointerEvents = "none"; // don't block host page by default
 
   document.body.appendChild(iframe);
 
-  // Small clickable area in bottom-right to "activate" the iframe
   var activator = document.createElement("div");
   activator.id = "cw-activator";
   activator.style.position = "fixed";
-  activator.style.right = "24px";
-  activator.style.bottom = "24px";
-  activator.style.width = "64px";
-  activator.style.height = "64px";
-  activator.style.zIndex = "2147483648";
+  activator.style.right = "16px";
+  activator.style.bottom = "16px";
+  activator.style.width = "80px";
+  activator.style.height = "80px";
+  activator.style.zIndex = "2147483648"; // ✅ must be ABOVE iframe
   activator.style.cursor = "pointer";
   activator.style.background = "transparent";
 
   activator.addEventListener("click", function () {
-    iframe.style.pointerEvents = "auto"; // allow click inside widget
-    // optional: auto-disable after a bit if user doesn't open it
-    setTimeout(function () {
-      iframe.style.pointerEvents = "none";
-    }, 1500);
+    iframe.style.pointerEvents = "auto"; // ✅ allow clicking widget
   });
 
   document.body.appendChild(activator);
 
-  // Later we can make this perfect using postMessage (open/close)
+  // Optional: click outside widget area to return to click-through mode
+  document.addEventListener("click", function (e) {
+    // if click was NOT on activator, and NOT inside iframe (we can't detect inside),
+    // you can choose to keep it enabled or disable. For now we keep enabled.
+  });
 })();
