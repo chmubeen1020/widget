@@ -1,0 +1,963 @@
+import { Bot, MessageSquareIcon, Minus, User, X } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+
+/* --------------------------------
+   Theme definitions (fallback defaults)
+-------------------------------- */
+const THEMES = {
+  1: {
+    name: "Theme 1 (Fallback)",
+    vars: {
+      panelBg: "#ffffff",
+      headerBg: "#6B69B2",
+      bodyBg: "#ffffff",
+      text: "#0F172A",
+      textMuted: "rgba(15,23,42,0.55)",
+      primary: "#6B69B2",
+      primarySoft: "rgba(109,102,216,0.12)",
+      accent: "#22C55E",
+      searchbar: "#F3F4F6",
+      searchbarBorder: "#99A1AF",
+      searchbarText: "#0F172A",
+      border: "rgba(15,23,42,0.12)",
+      ring: "rgba(109,102,216,0.3)",
+      shadow: "0 18px 45px rgba(15,23,42,0.18)",
+      aiBubbleBg: "#FBF8FF",
+      aiBubbleText: "#0F172A",
+      userBubbleBg: "#59AEB8",
+      userBubbleText: "#ffffff",
+      inputBg: "#ffffff",
+      inputText: "#0F172A",
+      inputPlaceholder: "rgba(15,23,42,0.45)",
+      optionBg: "rgba(109,102,216,0.1)",
+      optionText: "#2A2A70",
+      optionHoverBg: "rgba(109,102,216,0.18)",
+      fabBg: "#6B69B2",
+      fabRing: "rgba(109,102,216,0.35)",
+      radius: "18px",
+      fontFamily: "Inter, system-ui, sans-serif",
+      fontSize: "14px",
+    },
+  },
+};
+
+const uid = () => Math.random().toString(16).slice(2);
+const timeNow = () =>
+  new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+const THEME_API_BASE =
+  "https://equitably-skimpy-ryan.ngrok-free.dev/api/widgets/embed";
+
+function pickFirst(...vals) {
+  for (const v of vals) {
+    if (v !== null && v !== undefined && v !== "") return v;
+  }
+  return undefined;
+}
+
+/** Position helpers */
+function getPositionStyles(position = "bottom_right") {
+  const btn = { bottom: 24, right: 24 };
+  const modal = { bottom: 96, right: 24 };
+
+  switch (position) {
+    case "bottom_left":
+      btn.bottom = 24;
+      btn.left = 24;
+      delete btn.right;
+
+      modal.bottom = 96;
+      modal.left = 24;
+      delete modal.right;
+      break;
+
+    case "top_right":
+      btn.top = 24;
+      btn.right = 24;
+      delete btn.bottom;
+
+      modal.top = 96;
+      modal.right = 24;
+      delete modal.bottom;
+      break;
+
+    case "top_left":
+      btn.top = 24;
+      btn.left = 24;
+      delete btn.bottom;
+      delete btn.right;
+
+      modal.top = 96;
+      modal.left = 24;
+      delete modal.bottom;
+      delete modal.right;
+      break;
+
+    case "bottom_right":
+    default:
+      break;
+  }
+
+  return { btn, modal };
+}
+
+export default function SupportChatWidget({ tenantKey = "" }) {
+  // TODO later: read tenantKey from query param in /embed/widget?key=...
+  // const tenantKey = "59a4a93b-979c-4fe2-a763-3fac833ac98f";
+
+  const [themeId] = useState(1);
+  const [remoteTheme, setRemoteTheme] = useState(null);
+  const [themeLoading, setThemeLoading] = useState(true);
+  const [widgetCfg, setWidgetCfg] = useState(null);
+  const [chatIconUrl, setChatIconUrl] = useState("");
+
+  const [open, setOpen] = useState(false);
+  const [hover, setHover] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [booted, setBooted] = useState(false);
+  const [loadingIntro, setLoadingIntro] = useState(false);
+
+  // Socket states
+  const wsRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
+  const reconnectAttemptRef = useRef(0);
+  const shouldReconnectRef = useRef(false);
+  const typingTimerRef = useRef(null);
+  const hasReceivedFirstMessageRef = useRef(false);
+  const introTimerRef = useRef(null);
+
+  const [isConnected, setIsConnected] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+
+  const [dimensions, setDimensions] = useState({ width: 360, height: 360 });
+  const isResizing = useRef(null);
+  const lastMouseRef = useRef({ x: 0, y: 0 });
+const minSize = { w: 320, h: 320 };
+const maxSize = { w: 720, h: 820 }; // adjust if you want
+
+  const modalRef = useRef(null);
+  const widgetRef = useRef(null);
+  const listRef = useRef(null);
+  const timers = useRef([]);
+
+  // ------- Fetch Theme + Widget Config -------
+  
+useEffect(() => {
+  if (!tenantKey) return;
+
+  let cancelled = false;
+
+  setThemeLoading(true); // start loading
+
+  (async () => {
+    try {
+      const url = `${THEME_API_BASE}/${encodeURIComponent(tenantKey)}/theme/`;
+
+      const res = await fetch(url, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      });
+
+      const json = await res.json();
+
+      if (!json?.success) {
+        throw new Error(json?.message || "Theme API returned success=false");
+      }
+
+      const widget = json?.data?.widget || {};
+      const theme = json?.data?.theme || {};
+
+      if (!cancelled) {
+        setWidgetCfg(widget);
+        setRemoteTheme(theme);
+        setChatIconUrl(json?.data?.chat_icon_url || "");
+      }
+    } catch (err) {
+      console.error("[Widget] Theme fetch failed:", err);
+
+      if (!cancelled) {
+        setWidgetCfg(null);
+        setRemoteTheme(null);
+        setChatIconUrl("");
+      }
+    } finally {
+      if (!cancelled) {
+        setThemeLoading(false); // finish loading
+      }
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}, [tenantKey]);
+
+  const isEnabled = widgetCfg?.enabled ?? true;
+  if (!isEnabled) return null;
+
+  const position = widgetCfg?.position || "bottom_right";
+  const { btn: btnPos, modal: modalPos } = useMemo(
+    () => getPositionStyles(position),
+    [position],
+  );
+
+  const welcomeMessage =
+    widgetCfg?.welcome_message || "Hi 👋 How can I help you today?";
+  const inputPlaceholder =
+    widgetCfg?.input_placeholder || "Type your message...";
+
+  // ------- Theme -> CSS Vars -------
+  const cssVars = useMemo(() => {
+    const fallback = THEMES[themeId]?.vars || THEMES[1].vars;
+    const t = remoteTheme || {};
+
+    const primary = pickFirst(t.primary_color, fallback.primary);
+    const secondary = pickFirst(t.secondary_color, fallback.aiBubbleBg);
+    const bg = pickFirst(t.background_color, fallback.panelBg);
+    const text = pickFirst(t.text_color, t.font_color, fallback.text);
+    const fontFamily = pickFirst(t.font_family, fallback.fontFamily);
+    const fontSize = pickFirst(
+      typeof t.font_size === "number" ? `${t.font_size}px` : undefined,
+      fallback.fontSize,
+    );
+
+    const radius = pickFirst(
+      typeof widgetCfg?.border_radius === "number"
+        ? `${widgetCfg.border_radius}px`
+        : undefined,
+      fallback.radius,
+    );
+
+    const mergedVars = {
+      ...fallback,
+      primary,
+      headerBg: primary,
+      fabBg: primary,
+
+      panelBg: bg,
+      bodyBg: bg,
+      inputBg: bg,
+
+      text,
+      aiBubbleText: text,
+      searchbarText: text,
+
+      aiBubbleBg: secondary,
+      searchbar: secondary,
+      userBubbleBg: primary,
+      userBubbleText: secondary,
+
+      fontFamily,
+      fontSize,
+      radius,
+    };
+
+    return Object.fromEntries(
+      Object.entries(mergedVars).map(([k, val]) => [`--${k}`, val]),
+    );
+  }, [remoteTheme, widgetCfg, themeId]);
+
+  // ------- Resize (unchanged) -------
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      const currentDir = isResizing.current;
+      if (!currentDir || !modalRef.current || window.innerWidth < 1024) return;
+
+      const rect = modalRef.current.getBoundingClientRect();
+
+      setDimensions((prev) => {
+        let newWidth = prev.width;
+        let newHeight = prev.height;
+
+        if (currentDir.includes("top")) {
+          const deltaY = rect.top - e.clientY;
+          newHeight = Math.max(300, Math.min(prev.height + deltaY, 700));
+        }
+
+        if (currentDir.includes("left")) {
+          const deltaX = rect.left - e.clientX;
+          newWidth = Math.max(300, Math.min(prev.width + deltaX, 600));
+        }
+
+        return { width: newWidth, height: newHeight };
+      });
+    };
+
+    const handleMouseUp = () => {
+      isResizing.current = null;
+      document.body.style.cursor = "default";
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [open]);
+
+  // ------- Outside click close (unchanged) -------
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e) => {
+      if (widgetRef.current?.contains(e.target)) return;
+      if (modalRef.current && !modalRef.current.contains(e.target)) closeChat();
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  // ------- Scroll -------
+  useEffect(() => {
+    if (listRef.current) {
+      const isInitial = messages.length <= 1;
+      listRef.current.scrollTo({
+        top: listRef.current.scrollHeight,
+        behavior: isInitial ? "auto" : "smooth",
+      });
+    }
+  }, [messages, loadingIntro, isTyping]);
+
+  // ------- Body scroll lock -------
+  useEffect(() => {
+    document.body.style.overflow = open ? "hidden" : "unset";
+    return () => {
+      document.body.style.overflow = "unset";
+    };
+  }, [open]);
+
+  // ------- Helpers: typing indicator -------
+  const showTyping = (show) => {
+    setIsTyping(show);
+    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+    if (show) {
+      typingTimerRef.current = setTimeout(() => {
+        setIsTyping(false);
+      }, 6000);
+    }
+  };
+
+  // ------- Visitor ID persistence -------
+  const getStoredVisitorId = () => {
+    try {
+      return localStorage.getItem(`cw_vid_${tenantKey}`) || "new";
+    } catch {
+      return "new";
+    }
+  };
+
+  const storeVisitorId = (vid) => {
+    if (!vid) return;
+    try {
+      localStorage.setItem(`cw_vid_${tenantKey}`, vid);
+    } catch {
+      // ignore
+    }
+  };
+
+  // ------- WebSocket connect / disconnect -------
+  const disconnectWS = () => {
+    shouldReconnectRef.current = false;
+
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
+    showTyping(false);
+    setIsConnected(false);
+
+    const ws = wsRef.current;
+    wsRef.current = null;
+
+    if (ws) {
+      try {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onclose = null;
+        ws.onerror = null;
+        ws.close(1000, "Widget closed");
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const scheduleReconnect = () => {
+    if (!shouldReconnectRef.current) return;
+    if (reconnectTimerRef.current) return;
+
+    const attempt = reconnectAttemptRef.current;
+    const delay = Math.min(30000, 1000 * Math.pow(2, attempt)); // 1s,2s,4s... max 30s
+    reconnectAttemptRef.current = attempt + 1;
+
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      connectWS();
+    }, delay);
+  };
+
+  const connectWS = () => {
+    if (!tenantKey) return;
+
+    const existing = wsRef.current;
+    if (existing && (existing.readyState === 0 || existing.readyState === 1)) {
+      return; // already connecting/open
+    }
+
+    const visitorId = getStoredVisitorId(); // "new" first time
+    const url = `wss://equitably-skimpy-ryan.ngrok-free.dev/ws/chat/${encodeURIComponent(
+      tenantKey,
+    )}/${encodeURIComponent(visitorId)}/`;
+
+    try {
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setIsConnected(true);
+        reconnectAttemptRef.current = 0;
+        // do NOT send welcome from frontend; backend sends it
+      };
+
+ws.onmessage = (event) => {
+  let data = null;
+  try {
+    data = JSON.parse(event.data);
+  } catch (e) {
+    console.warn("[Widget] WS non-json message:", event.data);
+    return;
+  }
+
+  // ✅ FIRST: any server signal means "stop loading intro"
+  if (!hasReceivedFirstMessageRef.current) {
+    hasReceivedFirstMessageRef.current = true;
+
+    setLoadingIntro(false);
+
+    if (introTimerRef.current) {
+      clearTimeout(introTimerRef.current);
+      introTimerRef.current = null;
+    }
+  }
+
+  // 1) connection established
+  if (data.type === "connection_established") {
+    // server gives real visitor_id like "visitor_xxx"
+    if (data.visitor_id) storeVisitorId(data.visitor_id);
+    return;
+  }
+
+  // 2) typing
+  if (data.type === "typing" && data.sender === "ai") {
+    showTyping(true);
+    return;
+  }
+
+  // 3) chat message
+  if (data.type === "chat_message") {
+    const sender = data.sender_type;
+
+    // ignore visitor echo (we already show optimistic)
+    if (sender === "visitor") return;
+
+    showTyping(false);
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: data.message_id ? String(data.message_id) : uid(),
+        sender: sender === "ai" ? "ai" : "agent",
+        text: data.content || "",
+        time: timeNow(), // timestamp formatting later if you want
+      },
+    ]);
+
+    return;
+  }
+
+  // Optional: log unknown types (helps debugging)
+  // console.log("[Widget] WS message:", data);
+};
+
+      ws.onclose = () => {
+        setIsConnected(false);
+        showTyping(false);
+        wsRef.current = null;
+        scheduleReconnect();
+      };
+
+      ws.onerror = () => {
+        try {
+          ws.close();
+        } catch {
+          // ignore
+        }
+      };
+    } catch (err) {
+      console.error("[Widget] WS connect failed:", err);
+      scheduleReconnect();
+    }
+  };
+
+  // When widget opens -> connect; closes -> disconnect
+  useEffect(() => {
+    if (!open) {
+      disconnectWS();
+      return;
+    }
+    shouldReconnectRef.current = true;
+    connectWS();
+
+    return () => {
+      disconnectWS();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, tenantKey]);
+
+  // Boot behavior: don’t inject fake messages anymore.
+  // If you still want a fallback welcome when WS is slow, you can keep this.
+useEffect(() => {
+  if (!open) return;
+
+  // start loading
+  setLoadingIntro(true);
+  hasReceivedFirstMessageRef.current = false;
+
+  // fallback welcome if server doesn't send anything quickly
+  introTimerRef.current = setTimeout(() => {
+    setLoadingIntro(false);
+    setMessages((prev) => {
+      if (prev.length > 0) return prev;
+      return [
+        ...prev,
+        { id: uid(), sender: "ai", text: welcomeMessage, time: timeNow() },
+      ];
+    });
+  }, 900);
+
+  return () => {
+    if (introTimerRef.current) clearTimeout(introTimerRef.current);
+    introTimerRef.current = null;
+  };
+}, [open, welcomeMessage]);
+
+  const closeChat = () => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+    setOpen(false);
+    setMessages([]);
+    setInput("");
+    setBooted(false);
+    setLoadingIntro(false);
+  };
+
+  const sendMessage = (text) => {
+    const content = (text || "").trim();
+    if (!content) return;
+
+    // optimistic UI (keep UX snappy)
+    setMessages((m) => [
+      ...m,
+      { id: uid(), sender: "user", text: content, time: timeNow() },
+    ]);
+    setInput("");
+
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== 1) {
+      // not connected: show a system message
+      setMessages((m) => [
+        ...m,
+        {
+          id: uid(),
+          sender: "ai",
+          text: "⚠️ Not connected yet. Please try again in a moment.",
+          time: timeNow(),
+        },
+      ]);
+      return;
+    }
+
+    // send to server in your required format
+    ws.send(
+      JSON.stringify({
+        type: "chat_message",
+        content,
+        sender_type: "visitor",
+      }),
+    );
+  };
+
+useEffect(() => {
+  const onMove = (e) => {
+    const dir = isResizing.current;
+    if (!dir) return;
+
+    // only allow resize on large screens
+    if (window.innerWidth < 1024) return;
+
+    const dx = e.clientX - lastMouseRef.current.x;
+    const dy = e.clientY - lastMouseRef.current.y;
+
+    lastMouseRef.current = { x: e.clientX, y: e.clientY };
+
+    setDimensions((prev) => {
+      let width = prev.width;
+      let height = prev.height;
+
+      // ✅ modal is anchored to a corner, so resizing rules depend on position
+      // If modal is on RIGHT side -> dragging left handle increases width when moving mouse LEFT
+      // If modal is on LEFT side  -> dragging right handle increases width when moving mouse RIGHT
+      const onRight = position.includes("right");
+      const onBottom = position.includes("bottom");
+
+      if (dir.includes("x")) {
+        width = onRight ? width - dx : width + dx;
+      }
+
+      if (dir.includes("y")) {
+        height = onBottom ? height - dy : height + dy;
+      }
+
+      width = Math.max(minSize.w, Math.min(maxSize.w, width));
+      height = Math.max(minSize.h, Math.min(maxSize.h, height));
+
+      return { width, height };
+    });
+  };
+
+  const onUp = () => {
+    isResizing.current = null;
+    document.body.style.cursor = "default";
+  };
+
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+  return () => {
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  };
+}, [position]);
+
+if (themeLoading) return null;
+if (!tenantKey) return null;
+  return (
+    <div
+      style={{
+        ...cssVars,
+        fontFamily: "var(--fontFamily)",
+        fontSize: "var(--fontSize)",
+        color: "var(--text)",
+      }}
+    >
+      {/* Floating Button */}
+      <div className="fixed z-50" style={btnPos}>
+        {hover && !open && (
+          <div
+            className="absolute z-50"
+            style={{
+              ...(position.includes("top") ? { top: 56 } : { bottom: 56 }),
+              ...(position.includes("left") ? { left: 0 } : { right: 0 }),
+            }}
+          >
+            <div className="relative">
+              <div className="py-2 text-xs text-white text-center bg-[#0B1220] rounded-[10px] min-w-[160px]">
+                Need Help? Chat with us
+              </div>
+              <div
+                className="absolute w-3 h-3 rotate-45 bg-[#0B1220]"
+                style={{
+                  ...(position.includes("top") ? { top: -6 } : { bottom: -6 }),
+                  ...(position.includes("left") ? { left: 24 } : { right: 24 }),
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        <div
+          ref={widgetRef}
+          className="rounded-full flex items-center justify-center bg-white p-1 border border-gray-200"
+          style={{ borderRadius: "var(--radius)",}}
+        >
+          <button
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
+            onClick={() => setOpen((v) => !v)}
+            className="w-10 h-10  flex items-center justify-center transition-all duration-300 overflow-hidden"
+            style={{ background: "var(--fabBg)", color: "var(--bodyBg)" , borderRadius: "var(--radius)",}}
+            title="Chat"
+          >
+            {chatIconUrl ? (
+              <img
+                src={chatIconUrl}
+                alt="Chat"
+                style={{ width: 18, height: 18, objectFit: "contain" }}
+              />
+            ) : (
+              <MessageSquareIcon size={20} />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Modal */}
+      {open && (
+        <div
+          className="fixed z-50 flex flex-col items-end justify-end pointer-events-none"
+          style={{
+            ...modalPos,
+            width: window.innerWidth >= 1024 ? `${dimensions.width}px` : "360px",
+          }}
+        >
+          <div
+            ref={modalRef}
+            className="relative overflow-hidden shadow-2xl rounded-xl w-full pointer-events-auto"
+            style={{
+              background: "var(--panelBg)",
+              // borderRadius: "var(--radius)",
+              height:
+                window.innerWidth >= 1024
+                  ? `${dimensions.height + 120}px`
+                  : "auto",
+            }}
+          >
+            {/* Resize Handles - only desktop */}
+<div className="hidden lg:block">
+  {/* Horizontal resize */}
+  <div
+    className="absolute top-0 h-full w-2 z-[70]"
+    style={{
+      cursor: "ew-resize",
+      ...(position.includes("right") ? { left: 0 } : { right: 0 }),
+    }}
+    onMouseDown={(e) => {
+      e.preventDefault();
+      isResizing.current = "x";
+      lastMouseRef.current = { x: e.clientX, y: e.clientY };
+      document.body.style.cursor = "ew-resize";
+    }}
+  />
+
+  {/* Vertical resize */}
+  <div
+    className="absolute left-0 w-full h-2 z-[70]"
+    style={{
+      cursor: "ns-resize",
+      ...(position.includes("bottom") ? { top: 0 } : { bottom: 0 }),
+    }}
+    onMouseDown={(e) => {
+      e.preventDefault();
+      isResizing.current = "y";
+      lastMouseRef.current = { x: e.clientX, y: e.clientY };
+      document.body.style.cursor = "ns-resize";
+    }}
+  />
+
+  {/* Corner resize */}
+  <div
+    className="absolute w-4 h-4 z-[80]"
+    style={{
+      cursor: "nwse-resize",
+      ...(position.includes("right") ? { left: 0 } : { right: 0 }),
+      ...(position.includes("bottom") ? { top: 0 } : { bottom: 0 }),
+    }}
+    onMouseDown={(e) => {
+      e.preventDefault();
+      isResizing.current = "xy";
+      lastMouseRef.current = { x: e.clientX, y: e.clientY };
+      document.body.style.cursor = "nwse-resize";
+    }}
+  />
+</div>
+            {/* Header */}
+            <div
+              className="p-4 flex justify-between text-white"
+              style={{ background: "var(--headerBg)" }}
+            >
+              <div className="flex justify-start gap-2 items-center">
+                <div className="p-2 rounded-full text-white ">
+                  <MessageSquareIcon size={20} />
+                </div>
+                <div>
+                  <div className="font-semibold text-sm">Techween Support</div>
+
+                  <div className="text-[10px] flex items-center gap-2">
+                    <span className="flex items-center gap-1">
+                      <span className="text-[#05DF72]">●</span> Online
+                    </span>
+                    <span style={{ opacity: 0.9 }}>
+                      {isConnected ? "Connected" : "Connecting..."}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2 items-center">
+                <button onClick={() => setOpen(false)}>
+                  <Minus size={16} className="cursor-pointer"/>
+                </button>
+                <button onClick={closeChat}>
+                  <X size={16} className="cursor-pointer" />
+                </button>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div
+              className="p-3 overflow-y-auto chat-scroll"
+              ref={listRef}
+              style={{
+                background: "var(--bodyBg)",
+                height:
+                  window.innerWidth >= 1024 ? `${dimensions.height}px` : "360px",
+              }}
+            >
+              {loadingIntro && messages.length === 0 ? (
+                <div className="h-full flex items-center justify-center flex-col space-y-3">
+                  <MessageSquareIcon size={40} className="text-gray-400" />
+                  <p className="text-xs text-gray-400">
+                    Starting conversation...
+                  </p>
+                  <WaveLoader dots={3} />
+                </div>
+              ) : (
+                <>
+                  {messages.map((m) => (
+                    <div
+                      key={m.id}
+                      className={`mb-3 ${
+                        m.sender === "user" ? "text-right" : "text-left"
+                      }`}
+                    >
+                      <div
+                        className={`flex items-center gap-2 mb-1 ${
+                          m.sender === "user" ? "flex-row-reverse" : "flex-row"
+                        }`}
+                      >
+                        <div
+                          className="w-5 h-5 flex items-center justify-center rounded-md text-white"
+                          style={{
+                            background:
+                              m.sender === "user"
+                                ? "var(--userBubbleBg)"
+                                : "var(--primary)",
+                          }}
+                        >
+                          {m.sender === "user" ? (
+                            <User size={10} />
+                          ) : (
+                            <Bot size={10} />
+                          )}
+                        </div>
+                        <span
+                          className="text-[10px]"
+                          style={{ color: "var(--textMuted)" }}
+                        >
+                          {m.time}
+                        </span>
+                      </div>
+
+                      <div
+                        className="inline-block px-3 py-1 rounded-lg text-xs"
+                        style={{
+                          background:
+                            m.sender === "user"
+                              ? "var(--userBubbleBg)"
+                              : "var(--aiBubbleBg)",
+                          color:
+                            m.sender === "user"
+                              ? "var(--userBubbleText)"
+                              : "var(--aiBubbleText)",
+                        }}
+                      >
+                        {m.text}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Typing indicator (AI) */}
+                  {isTyping && (
+                    <div className="mb-3 text-left">
+                      <div className="flex items-center gap-2 mb-1">
+                        <div
+                          className="w-5 h-5 flex items-center justify-center rounded-full text-white"
+                          style={{ background: "var(--primary)" }}
+                        >
+                          <Bot size={10} />
+                        </div>
+                        <span
+                          className="text-[10px]"
+                          style={{ color: "var(--textMuted)" }}
+                        >
+                          typing...
+                        </span>
+                      </div>
+                      <div
+                        className="inline-block px-3 py-2 rounded-xl text-sm"
+                        style={{
+                          background: "var(--aiBubbleBg)",
+                          color: "var(--aiBubbleText)",
+                          borderRadius: "var(--radius)",
+                        }}
+                      >
+                        <WaveLoader dots={3} />
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Input Area */}
+            <div className="p-3 border-t border-gray-100">
+              <div className="flex gap-2">
+                <input
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && sendMessage(input)}
+                  className="flex-1 px-3 py-2 rounded-md outline-none text-xs border border-gray-100"
+                  style={{
+                    background: "var(--searchbar)",
+                    color: "var(--searchbarText)",
+                    // borderRadius: "var(--radius)",
+                  }}
+                  placeholder={inputPlaceholder}
+                />
+                <button
+                  onClick={() => sendMessage(input)}
+                  className="p-2 rounded-lg text-white shadow-sm"
+                  style={{
+                    background: "var(--primary)",
+                    // borderRadius: "var(--radius)",
+                  }}
+                  disabled={!input.trim()}
+                >
+                  <MessageSquareIcon size={16} className="cursor-pointer"/>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WaveLoader({ dots = 3, size = 5, gap = 3, lift = 3 }) {
+  return (
+    <div className="flex items-center justify-center" style={{ gap }}>
+      {Array.from({ length: dots }).map((_, i) => (
+        <span
+          key={i}
+          className="wave-dot"
+          style={{ width: size, height: size, animationDelay: `${i * 0.15}s` }}
+        />
+      ))}
+      <style>{`
+        .wave-dot { border-radius: 50%; background-color: var(--primary); opacity: 0.4; animation: wave 1.2s infinite ease-in-out; }
+        @keyframes wave { 0%, 100% { transform: translateY(0); opacity: 0.4; } 50% { transform: translateY(-${lift}px); opacity: 1; } }
+      `}</style>
+    </div>
+  );
+}

@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+@theme {
+  /* This creates classes like bg-primary, text-primary, border-primary, etc. */
+  --color-primary: #4799FF;
+  
+  /* Optional: Add a hovered version or a dark variant */
+  --color-primary-dark: #367ee6;
+}
