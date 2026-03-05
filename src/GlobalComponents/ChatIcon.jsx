@@ -114,7 +114,6 @@ export default function SupportChatWidget({ tenantKey = "" }) {
   const [hover, setHover] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const [booted, setBooted] = useState(false);
   const [loadingIntro, setLoadingIntro] = useState(false);
 
   // Socket states
@@ -140,7 +139,34 @@ export default function SupportChatWidget({ tenantKey = "" }) {
   const listRef = useRef(null);
   const timers = useRef([]);
 
-  // ✅ HELPER: Notify parent window about modal state
+  // ✅ Storage keys for persistence
+  const STORAGE_KEYS = {
+    messages: `cw_messages_${tenantKey}`,
+    visitorId: `cw_vid_${tenantKey}`,
+  };
+
+  // ✅ Load messages from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedMessages = localStorage.getItem(STORAGE_KEYS.messages);
+      if (savedMessages) {
+        setMessages(JSON.parse(savedMessages));
+      }
+    } catch (err) {
+      console.error("[Widget] Failed to load messages from storage:", err);
+    }
+  }, [tenantKey]);
+
+  // ✅ Save messages to localStorage whenever they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.messages, JSON.stringify(messages));
+      } catch (err) {
+        console.error("[Widget] Failed to save messages to storage:", err);
+      }
+    }
+  }, [messages]);
 
   // ------- Fetch Theme + Widget Config -------
   useEffect(() => {
@@ -285,7 +311,7 @@ export default function SupportChatWidget({ tenantKey = "" }) {
   // ------- Visitor ID persistence -------
   const getStoredVisitorId = () => {
     try {
-      return localStorage.getItem(`cw_vid_${tenantKey}`) || "new";
+      return localStorage.getItem(STORAGE_KEYS.visitorId) || "new";
     } catch {
       return "new";
     }
@@ -294,7 +320,7 @@ export default function SupportChatWidget({ tenantKey = "" }) {
   const storeVisitorId = (vid) => {
     if (!vid) return;
     try {
-      localStorage.setItem(`cw_vid_${tenantKey}`, vid);
+      localStorage.setItem(STORAGE_KEYS.visitorId, vid);
     } catch {
       // ignore
     }
@@ -433,12 +459,8 @@ export default function SupportChatWidget({ tenantKey = "" }) {
     }
   };
 
-  // When widget opens -> connect; closes -> disconnect
+  // ✅ Connect WebSocket when component mounts (persistent connection)
   useEffect(() => {
-    if (!open) {
-      disconnectWS();
-      return;
-    }
     shouldReconnectRef.current = true;
     connectWS();
 
@@ -446,11 +468,23 @@ export default function SupportChatWidget({ tenantKey = "" }) {
       disconnectWS();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, tenantKey]);
+  }, [tenantKey]);
 
-  // Boot behavior
+  // ✅ Boot behavior - only show loading if no messages exist
   useEffect(() => {
     if (!open) return;
+
+    // If we already have messages, don't show loading
+    if (messages.length > 0) {
+      setLoadingIntro(false);
+      return;
+    }
+
+    // If websocket is already connected, don't show loading
+    if (isConnected) {
+      setLoadingIntro(false);
+      return;
+    }
 
     setLoadingIntro(true);
     hasReceivedFirstMessageRef.current = false;
@@ -470,7 +504,7 @@ export default function SupportChatWidget({ tenantKey = "" }) {
       if (introTimerRef.current) clearTimeout(introTimerRef.current);
       introTimerRef.current = null;
     };
-  }, [open, welcomeMessage]);
+  }, [open, welcomeMessage, messages.length, isConnected]);
 
   // ✅ OPEN MODAL function
   const openModal = () => {
@@ -478,15 +512,38 @@ export default function SupportChatWidget({ tenantKey = "" }) {
     notifyParent("CW_MODAL_OPEN");
   };
 
-  // ✅ CLOSE MODAL function
+  // ✅ MINIMIZE - Close modal but keep chat & websocket
+  const minimizeChat = () => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+    setOpen(false);
+    // ✅ DON'T clear messages
+    // ✅ DON'T disconnect websocket
+    notifyParent("CW_MODAL_CLOSE");
+  };
+
+  // ✅ CLOSE - Clear everything and disconnect
   const closeChat = () => {
     timers.current.forEach(clearTimeout);
     timers.current = [];
     setOpen(false);
+    
+    // ✅ Clear messages from state
     setMessages([]);
+    
+    // ✅ Clear messages from localStorage
+    try {
+      localStorage.removeItem(STORAGE_KEYS.messages);
+    } catch (err) {
+      console.error("[Widget] Failed to clear messages from storage:", err);
+    }
+    
     setInput("");
-    setBooted(false);
     setLoadingIntro(false);
+    
+    // ✅ Disconnect websocket
+    disconnectWS();
+    
     notifyParent("CW_MODAL_CLOSE");
   };
 
@@ -571,30 +628,30 @@ export default function SupportChatWidget({ tenantKey = "" }) {
   }, [position]);
 
   // Notify parent about FAB zone
-useEffect(() => {
-  notifyParent("CW_FAB_ZONE", {
-    position: position,
-    size: { width: 80, height: 80 }
-  });
-}, [position]);
+  useEffect(() => {
+    notifyParent("CW_FAB_ZONE", {
+      position: position,
+      size: { width: 80, height: 80 },
+    });
+  }, [position]);
 
-// Listen for FAB clicks from parent
-useEffect(() => {
-  const onMsg = (e) => {
-    if (e.data?.type === "CW_FAB_CLICK") {
-      openModal();
+  // Listen for FAB clicks from parent
+  useEffect(() => {
+    const onMsg = (e) => {
+      if (e.data?.type === "CW_FAB_CLICK") {
+        openModal();
+      }
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+
+  // Update notifyParent to accept data
+  const notifyParent = (type, data = {}) => {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type, ...data }, "*");
     }
   };
-  window.addEventListener("message", onMsg);
-  return () => window.removeEventListener("message", onMsg);
-}, []);
-
-// Update notifyParent to accept data
-const notifyParent = (type, data = {}) => {
-  if (window.parent && window.parent !== window) {
-    window.parent.postMessage({ type, ...data }, "*");
-  }
-};
 
   if (themeLoading) return null;
   if (!tenantKey) return null;
@@ -607,15 +664,15 @@ const notifyParent = (type, data = {}) => {
         fontFamily: "var(--fontFamily)",
         fontSize: "var(--fontSize)",
         color: "var(--text)",
-        pointerEvents: "none", // ✅ Container passes through clicks
+        pointerEvents: "none",
       }}
     >
-      {/* Floating Button - ✅ This needs pointer-events: auto */}
-      <div 
-        className="fixed z-50" 
+      {/* Floating Button */}
+      <div
+        className="fixed z-50"
         style={{
           ...btnPos,
-          pointerEvents: "auto", // ✅ FAB area captures clicks
+          pointerEvents: "auto",
         }}
       >
         {hover && !open && (
@@ -653,7 +710,7 @@ const notifyParent = (type, data = {}) => {
               if (!open) {
                 openModal();
               } else {
-                closeChat();
+                minimizeChat();
               }
             }}
             className="w-10 h-10 flex items-center justify-center transition-all duration-300 overflow-hidden"
@@ -677,7 +734,7 @@ const notifyParent = (type, data = {}) => {
         </div>
       </div>
 
-      {/* Modal - ✅ This also needs pointer-events: auto when open */}
+      {/* Modal */}
       {open && (
         <div
           className="fixed z-50 flex flex-col items-end justify-end"
@@ -685,7 +742,7 @@ const notifyParent = (type, data = {}) => {
             ...modalPos,
             width:
               window.innerWidth >= 1024 ? `${dimensions.width}px` : "360px",
-            pointerEvents: "auto", // ✅ Modal captures clicks when open
+            pointerEvents: "auto",
           }}
         >
           <div
@@ -721,9 +778,7 @@ const notifyParent = (type, data = {}) => {
                 className="absolute left-0 w-full h-2 z-[70]"
                 style={{
                   cursor: "ns-resize",
-                  ...(position.includes("bottom")
-                    ? { top: 0 }
-                    : { bottom: 0 }),
+                  ...(position.includes("bottom") ? { top: 0 } : { bottom: 0 }),
                 }}
                 onMouseDown={(e) => {
                   e.preventDefault();
@@ -739,9 +794,7 @@ const notifyParent = (type, data = {}) => {
                 style={{
                   cursor: "nwse-resize",
                   ...(position.includes("right") ? { left: 0 } : { right: 0 }),
-                  ...(position.includes("bottom")
-                    ? { top: 0 }
-                    : { bottom: 0 }),
+                  ...(position.includes("bottom") ? { top: 0 } : { bottom: 0 }),
                 }}
                 onMouseDown={(e) => {
                   e.preventDefault();
@@ -775,10 +828,12 @@ const notifyParent = (type, data = {}) => {
                 </div>
               </div>
               <div className="flex gap-2 items-center">
-                <button onClick={closeChat}>
+                {/* ✅ MINIMIZE BUTTON - Keep chat & websocket */}
+                <button onClick={minimizeChat} title="Minimize">
                   <Minus size={16} className="cursor-pointer" />
                 </button>
-                <button onClick={closeChat}>
+                {/* ✅ CLOSE BUTTON - Clear chat & disconnect */}
+                <button onClick={closeChat} title="Close">
                   <X size={16} className="cursor-pointer" />
                 </button>
               </div>
@@ -791,9 +846,7 @@ const notifyParent = (type, data = {}) => {
               style={{
                 background: "var(--bodyBg)",
                 height:
-                  window.innerWidth >= 1024
-                    ? `${dimensions.height}px`
-                    : "360px",
+                  window.innerWidth >= 1024 ? `${dimensions.height}px` : "360px",
               }}
             >
               {loadingIntro && messages.length === 0 ? (
