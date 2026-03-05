@@ -141,11 +141,6 @@ export default function SupportChatWidget({ tenantKey = "" }) {
   const timers = useRef([]);
 
   // ✅ HELPER: Notify parent window about modal state
-  const notifyParent = (type) => {
-    if (window.parent && window.parent !== window) {
-      window.parent.postMessage({ type }, "*");
-    }
-  };
 
   // ------- Fetch Theme + Widget Config -------
   useEffect(() => {
@@ -574,6 +569,32 @@ export default function SupportChatWidget({ tenantKey = "" }) {
       window.removeEventListener("mouseup", onUp);
     };
   }, [position]);
+
+  // Notify parent about FAB zone
+useEffect(() => {
+  notifyParent("CW_FAB_ZONE", {
+    position: position,
+    size: { width: 80, height: 80 }
+  });
+}, [position]);
+
+// Listen for FAB clicks from parent
+useEffect(() => {
+  const onMsg = (e) => {
+    if (e.data?.type === "CW_FAB_CLICK") {
+      openModal();
+    }
+  };
+  window.addEventListener("message", onMsg);
+  return () => window.removeEventListener("message", onMsg);
+}, []);
+
+// Update notifyParent to accept data
+const notifyParent = (type, data = {}) => {
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({ type, ...data }, "*");
+  }
+};
 
   if (themeLoading) return null;
   if (!tenantKey) return null;
