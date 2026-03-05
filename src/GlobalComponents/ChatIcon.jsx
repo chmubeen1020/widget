@@ -480,7 +480,7 @@ export default function SupportChatWidget({ tenantKey = "" }) {
   // ✅ OPEN MODAL function
   const openModal = () => {
     setOpen(true);
-    notifyParent("CW_MODAL_OPEN"); // Tell parent to enable pointer events
+    notifyParent("CW_MODAL_OPEN");
   };
 
   // ✅ CLOSE MODAL function
@@ -492,7 +492,7 @@ export default function SupportChatWidget({ tenantKey = "" }) {
     setInput("");
     setBooted(false);
     setLoadingIntro(false);
-    notifyParent("CW_MODAL_CLOSE"); // Tell parent to disable pointer events
+    notifyParent("CW_MODAL_CLOSE");
   };
 
   const sendMessage = (text) => {
@@ -586,10 +586,17 @@ export default function SupportChatWidget({ tenantKey = "" }) {
         fontFamily: "var(--fontFamily)",
         fontSize: "var(--fontSize)",
         color: "var(--text)",
+        pointerEvents: "none", // ✅ Container passes through clicks
       }}
     >
-      {/* Floating Button */}
-      <div className="fixed z-50 pointer-events-auto" style={btnPos}>
+      {/* Floating Button - ✅ This needs pointer-events: auto */}
+      <div 
+        className="fixed z-50" 
+        style={{
+          ...btnPos,
+          pointerEvents: "auto", // ✅ FAB area captures clicks
+        }}
+      >
         {hover && !open && (
           <div
             className="absolute z-50"
@@ -649,19 +656,20 @@ export default function SupportChatWidget({ tenantKey = "" }) {
         </div>
       </div>
 
-      {/* Modal */}
+      {/* Modal - ✅ This also needs pointer-events: auto when open */}
       {open && (
         <div
-          className="fixed z-50 flex flex-col items-end justify-end pointer-events-none"
+          className="fixed z-50 flex flex-col items-end justify-end"
           style={{
             ...modalPos,
             width:
               window.innerWidth >= 1024 ? `${dimensions.width}px` : "360px",
+            pointerEvents: "auto", // ✅ Modal captures clicks when open
           }}
         >
           <div
             ref={modalRef}
-            className="relative overflow-hidden shadow-2xl rounded-xl w-full pointer-events-auto"
+            className="relative overflow-hidden shadow-2xl rounded-xl w-full"
             style={{
               background: "var(--panelBg)",
               height:
