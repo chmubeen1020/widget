@@ -57,12 +57,12 @@ function pickFirst(...vals) {
 
 function normalizeMediaUrl(url) {
   if (!url) return "";
-  // If your page is https, force https for media URLs to avoid Mixed Content
   if (window.location.protocol === "https:") {
     return url.replace(/^http:\/\//i, "https://");
   }
   return url;
 }
+
 /** Position helpers */
 function getPositionStyles(position = "bottom_right") {
   const btn = { bottom: 24, right: 24 };
@@ -73,34 +73,28 @@ function getPositionStyles(position = "bottom_right") {
       btn.bottom = 24;
       btn.left = 24;
       delete btn.right;
-
       modal.bottom = 96;
       modal.left = 24;
       delete modal.right;
       break;
-
     case "top_right":
       btn.top = 24;
       btn.right = 24;
       delete btn.bottom;
-
       modal.top = 96;
       modal.right = 24;
       delete modal.bottom;
       break;
-
     case "top_left":
       btn.top = 24;
       btn.left = 24;
       delete btn.bottom;
       delete btn.right;
-
       modal.top = 96;
       modal.left = 24;
       delete modal.bottom;
       delete modal.right;
       break;
-
     case "bottom_right":
     default:
       break;
@@ -110,9 +104,6 @@ function getPositionStyles(position = "bottom_right") {
 }
 
 export default function SupportChatWidget({ tenantKey = "" }) {
-  // TODO later: read tenantKey from query param in /embed/widget?key=...
-  // const tenantKey = "59a4a93b-979c-4fe2-a763-3fac833ac98f";
-
   const [themeId] = useState(1);
   const [remoteTheme, setRemoteTheme] = useState(null);
   const [themeLoading, setThemeLoading] = useState(true);
@@ -141,73 +132,74 @@ export default function SupportChatWidget({ tenantKey = "" }) {
   const [dimensions, setDimensions] = useState({ width: 360, height: 360 });
   const isResizing = useRef(null);
   const lastMouseRef = useRef({ x: 0, y: 0 });
-const minSize = { w: 320, h: 320 };
-const maxSize = { w: 720, h: 820 }; // adjust if you want
+  const minSize = { w: 320, h: 320 };
+  const maxSize = { w: 720, h: 820 };
 
   const modalRef = useRef(null);
   const widgetRef = useRef(null);
   const listRef = useRef(null);
   const timers = useRef([]);
 
-  // ------- Fetch Theme + Widget Config -------
-  
-useEffect(() => {
-  if (!tenantKey) return;
-
-  let cancelled = false;
-
-  setThemeLoading(true); // start loading
-
-  (async () => {
-    try {
-      const url = `${THEME_API_BASE}/${encodeURIComponent(tenantKey)}/theme/`;
-
-      const res = await fetch(url, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      });
-
-      const json = await res.json();
-
-      if (!json?.success) {
-        throw new Error(json?.message || "Theme API returned success=false");
-      }
-
-      const widget = json?.data?.widget || {};
-      const theme = json?.data?.theme || {};
-
-      if (!cancelled) {
-        setWidgetCfg(widget);
-        setRemoteTheme(theme);
-        setChatIconUrl(normalizeMediaUrl(json?.data?.chat_icon_url || ""));
-      }
-    } catch (err) {
-      console.error("[Widget] Theme fetch failed:", err);
-
-      if (!cancelled) {
-        setWidgetCfg(null);
-        setRemoteTheme(null);
-        setChatIconUrl("");
-      }
-    } finally {
-      if (!cancelled) {
-        setThemeLoading(false); // finish loading
-      }
+  // ✅ HELPER: Notify parent window about modal state
+  const notifyParent = (type) => {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type }, "*");
     }
-  })();
-
-  return () => {
-    cancelled = true;
   };
-}, [tenantKey]);
+
+  // ------- Fetch Theme + Widget Config -------
+  useEffect(() => {
+    if (!tenantKey) return;
+
+    let cancelled = false;
+    setThemeLoading(true);
+
+    (async () => {
+      try {
+        const url = `${THEME_API_BASE}/${encodeURIComponent(tenantKey)}/theme/`;
+        const res = await fetch(url, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        });
+
+        const json = await res.json();
+
+        if (!json?.success) {
+          throw new Error(json?.message || "Theme API returned success=false");
+        }
+
+        const widget = json?.data?.widget || {};
+        const theme = json?.data?.theme || {};
+
+        if (!cancelled) {
+          setWidgetCfg(widget);
+          setRemoteTheme(theme);
+          setChatIconUrl(normalizeMediaUrl(json?.data?.chat_icon_url || ""));
+        }
+      } catch (err) {
+        console.error("[Widget] Theme fetch failed:", err);
+        if (!cancelled) {
+          setWidgetCfg(null);
+          setRemoteTheme(null);
+          setChatIconUrl("");
+        }
+      } finally {
+        if (!cancelled) {
+          setThemeLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantKey]);
 
   const isEnabled = widgetCfg?.enabled ?? true;
-  if (!isEnabled) return null;
-
   const position = widgetCfg?.position || "bottom_right";
   const { btn: btnPos, modal: modalPos } = useMemo(
     () => getPositionStyles(position),
-    [position],
+    [position]
   );
 
   const welcomeMessage =
@@ -227,14 +219,14 @@ useEffect(() => {
     const fontFamily = pickFirst(t.font_family, fallback.fontFamily);
     const fontSize = pickFirst(
       typeof t.font_size === "number" ? `${t.font_size}px` : undefined,
-      fallback.fontSize,
+      fallback.fontSize
     );
 
     const radius = pickFirst(
       typeof widgetCfg?.border_radius === "number"
         ? `${widgetCfg.border_radius}px`
         : undefined,
-      fallback.radius,
+      fallback.radius
     );
 
     const mergedVars = {
@@ -242,79 +234,25 @@ useEffect(() => {
       primary,
       headerBg: primary,
       fabBg: primary,
-
       panelBg: bg,
       bodyBg: bg,
       inputBg: bg,
-
       text,
       aiBubbleText: text,
       searchbarText: text,
-
       aiBubbleBg: secondary,
       searchbar: secondary,
       userBubbleBg: primary,
       userBubbleText: secondary,
-
       fontFamily,
       fontSize,
       radius,
     };
 
     return Object.fromEntries(
-      Object.entries(mergedVars).map(([k, val]) => [`--${k}`, val]),
+      Object.entries(mergedVars).map(([k, val]) => [`--${k}`, val])
     );
   }, [remoteTheme, widgetCfg, themeId]);
-
-  // ------- Resize (unchanged) -------
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      const currentDir = isResizing.current;
-      if (!currentDir || !modalRef.current || window.innerWidth < 1024) return;
-
-      const rect = modalRef.current.getBoundingClientRect();
-
-      setDimensions((prev) => {
-        let newWidth = prev.width;
-        let newHeight = prev.height;
-
-        if (currentDir.includes("top")) {
-          const deltaY = rect.top - e.clientY;
-          newHeight = Math.max(300, Math.min(prev.height + deltaY, 700));
-        }
-
-        if (currentDir.includes("left")) {
-          const deltaX = rect.left - e.clientX;
-          newWidth = Math.max(300, Math.min(prev.width + deltaX, 600));
-        }
-
-        return { width: newWidth, height: newHeight };
-      });
-    };
-
-    const handleMouseUp = () => {
-      isResizing.current = null;
-      document.body.style.cursor = "default";
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [open]);
-
-  // ------- Outside click close (unchanged) -------
-  useEffect(() => {
-    if (!open) return;
-    const handleClickOutside = (e) => {
-      if (widgetRef.current?.contains(e.target)) return;
-      if (modalRef.current && !modalRef.current.contains(e.target)) closeChat();
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open]);
 
   // ------- Scroll -------
   useEffect(() => {
@@ -327,14 +265,6 @@ useEffect(() => {
     }
   }, [messages, loadingIntro, isTyping]);
 
-  // ------- Body scroll lock -------
-  useEffect(() => {
-    document.body.style.overflow = open ? "hidden" : "unset";
-    return () => {
-      document.body.style.overflow = "unset";
-    };
-  }, [open]);
-
   // ------- Helpers: typing indicator -------
   const showTyping = (show) => {
     setIsTyping(show);
@@ -345,13 +275,17 @@ useEffect(() => {
       }, 6000);
     }
   };
-useEffect(() => {
-  const onMsg = (e) => {
-    if (e.data?.type === "CW_OPEN") setOpen(true);
-  };
-  window.addEventListener("message", onMsg);
-  return () => window.removeEventListener("message", onMsg);
-}, []);
+
+  // ------- Listen for parent messages (CW_OPEN) -------
+  useEffect(() => {
+    const onMsg = (e) => {
+      if (e.data?.type === "CW_OPEN") {
+        openModal();
+      }
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
 
   // ------- Visitor ID persistence -------
   const getStoredVisitorId = () => {
@@ -404,7 +338,7 @@ useEffect(() => {
     if (reconnectTimerRef.current) return;
 
     const attempt = reconnectAttemptRef.current;
-    const delay = Math.min(30000, 1000 * Math.pow(2, attempt)); // 1s,2s,4s... max 30s
+    const delay = Math.min(30000, 1000 * Math.pow(2, attempt));
     reconnectAttemptRef.current = attempt + 1;
 
     reconnectTimerRef.current = setTimeout(() => {
@@ -418,12 +352,12 @@ useEffect(() => {
 
     const existing = wsRef.current;
     if (existing && (existing.readyState === 0 || existing.readyState === 1)) {
-      return; // already connecting/open
+      return;
     }
 
-    const visitorId = getStoredVisitorId(); // "new" first time
+    const visitorId = getStoredVisitorId();
     const url = `wss://equitably-skimpy-ryan.ngrok-free.dev/ws/chat/${encodeURIComponent(
-      tenantKey,
+      tenantKey
     )}/${encodeURIComponent(visitorId)}/`;
 
     try {
@@ -433,68 +367,56 @@ useEffect(() => {
       ws.onopen = () => {
         setIsConnected(true);
         reconnectAttemptRef.current = 0;
-        // do NOT send welcome from frontend; backend sends it
       };
 
-ws.onmessage = (event) => {
-  let data = null;
-  try {
-    data = JSON.parse(event.data);
-  } catch (e) {
-    console.warn("[Widget] WS non-json message:", event.data);
-    return;
-  }
+      ws.onmessage = (event) => {
+        let data = null;
+        try {
+          data = JSON.parse(event.data);
+        } catch (e) {
+          console.warn("[Widget] WS non-json message:", event.data);
+          return;
+        }
 
-  // ✅ FIRST: any server signal means "stop loading intro"
-  if (!hasReceivedFirstMessageRef.current) {
-    hasReceivedFirstMessageRef.current = true;
+        if (!hasReceivedFirstMessageRef.current) {
+          hasReceivedFirstMessageRef.current = true;
+          setLoadingIntro(false);
 
-    setLoadingIntro(false);
+          if (introTimerRef.current) {
+            clearTimeout(introTimerRef.current);
+            introTimerRef.current = null;
+          }
+        }
 
-    if (introTimerRef.current) {
-      clearTimeout(introTimerRef.current);
-      introTimerRef.current = null;
-    }
-  }
+        if (data.type === "connection_established") {
+          if (data.visitor_id) storeVisitorId(data.visitor_id);
+          return;
+        }
 
-  // 1) connection established
-  if (data.type === "connection_established") {
-    // server gives real visitor_id like "visitor_xxx"
-    if (data.visitor_id) storeVisitorId(data.visitor_id);
-    return;
-  }
+        if (data.type === "typing" && data.sender === "ai") {
+          showTyping(true);
+          return;
+        }
 
-  // 2) typing
-  if (data.type === "typing" && data.sender === "ai") {
-    showTyping(true);
-    return;
-  }
+        if (data.type === "chat_message") {
+          const sender = data.sender_type;
+          if (sender === "visitor") return;
 
-  // 3) chat message
-  if (data.type === "chat_message") {
-    const sender = data.sender_type;
+          showTyping(false);
 
-    // ignore visitor echo (we already show optimistic)
-    if (sender === "visitor") return;
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: data.message_id ? String(data.message_id) : uid(),
+              sender: sender === "ai" ? "ai" : "agent",
+              text: data.content || "",
+              time: timeNow(),
+            },
+          ]);
 
-    showTyping(false);
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: data.message_id ? String(data.message_id) : uid(),
-        sender: sender === "ai" ? "ai" : "agent",
-        text: data.content || "",
-        time: timeNow(), // timestamp formatting later if you want
-      },
-    ]);
-
-    return;
-  }
-
-  // Optional: log unknown types (helps debugging)
-  // console.log("[Widget] WS message:", data);
-};
+          return;
+        }
+      };
 
       ws.onclose = () => {
         setIsConnected(false);
@@ -531,33 +453,37 @@ ws.onmessage = (event) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, tenantKey]);
 
-  // Boot behavior: don’t inject fake messages anymore.
-  // If you still want a fallback welcome when WS is slow, you can keep this.
-useEffect(() => {
-  if (!open) return;
+  // Boot behavior
+  useEffect(() => {
+    if (!open) return;
 
-  // start loading
-  setLoadingIntro(true);
-  hasReceivedFirstMessageRef.current = false;
+    setLoadingIntro(true);
+    hasReceivedFirstMessageRef.current = false;
 
-  // fallback welcome if server doesn't send anything quickly
-  introTimerRef.current = setTimeout(() => {
-    setLoadingIntro(false);
-    setMessages((prev) => {
-      if (prev.length > 0) return prev;
-      return [
-        ...prev,
-        { id: uid(), sender: "ai", text: welcomeMessage, time: timeNow() },
-      ];
-    });
-  }, 900);
+    introTimerRef.current = setTimeout(() => {
+      setLoadingIntro(false);
+      setMessages((prev) => {
+        if (prev.length > 0) return prev;
+        return [
+          ...prev,
+          { id: uid(), sender: "ai", text: welcomeMessage, time: timeNow() },
+        ];
+      });
+    }, 900);
 
-  return () => {
-    if (introTimerRef.current) clearTimeout(introTimerRef.current);
-    introTimerRef.current = null;
+    return () => {
+      if (introTimerRef.current) clearTimeout(introTimerRef.current);
+      introTimerRef.current = null;
+    };
+  }, [open, welcomeMessage]);
+
+  // ✅ OPEN MODAL function
+  const openModal = () => {
+    setOpen(true);
+    notifyParent("CW_MODAL_OPEN"); // Tell parent to enable pointer events
   };
-}, [open, welcomeMessage]);
 
+  // ✅ CLOSE MODAL function
   const closeChat = () => {
     timers.current.forEach(clearTimeout);
     timers.current = [];
@@ -566,13 +492,13 @@ useEffect(() => {
     setInput("");
     setBooted(false);
     setLoadingIntro(false);
+    notifyParent("CW_MODAL_CLOSE"); // Tell parent to disable pointer events
   };
 
   const sendMessage = (text) => {
     const content = (text || "").trim();
     if (!content) return;
 
-    // optimistic UI (keep UX snappy)
     setMessages((m) => [
       ...m,
       { id: uid(), sender: "user", text: content, time: timeNow() },
@@ -581,7 +507,6 @@ useEffect(() => {
 
     const ws = wsRef.current;
     if (!ws || ws.readyState !== 1) {
-      // not connected: show a system message
       setMessages((m) => [
         ...m,
         {
@@ -594,69 +519,66 @@ useEffect(() => {
       return;
     }
 
-    // send to server in your required format
     ws.send(
       JSON.stringify({
         type: "chat_message",
         content,
         sender_type: "visitor",
-      }),
+      })
     );
   };
 
-useEffect(() => {
-  const onMove = (e) => {
-    const dir = isResizing.current;
-    if (!dir) return;
+  // ------- Resize handling -------
+  useEffect(() => {
+    const onMove = (e) => {
+      const dir = isResizing.current;
+      if (!dir) return;
+      if (window.innerWidth < 1024) return;
 
-    // only allow resize on large screens
-    if (window.innerWidth < 1024) return;
+      const dx = e.clientX - lastMouseRef.current.x;
+      const dy = e.clientY - lastMouseRef.current.y;
 
-    const dx = e.clientX - lastMouseRef.current.x;
-    const dy = e.clientY - lastMouseRef.current.y;
+      lastMouseRef.current = { x: e.clientX, y: e.clientY };
 
-    lastMouseRef.current = { x: e.clientX, y: e.clientY };
+      setDimensions((prev) => {
+        let width = prev.width;
+        let height = prev.height;
 
-    setDimensions((prev) => {
-      let width = prev.width;
-      let height = prev.height;
+        const onRight = position.includes("right");
+        const onBottom = position.includes("bottom");
 
-      // ✅ modal is anchored to a corner, so resizing rules depend on position
-      // If modal is on RIGHT side -> dragging left handle increases width when moving mouse LEFT
-      // If modal is on LEFT side  -> dragging right handle increases width when moving mouse RIGHT
-      const onRight = position.includes("right");
-      const onBottom = position.includes("bottom");
+        if (dir.includes("x")) {
+          width = onRight ? width - dx : width + dx;
+        }
 
-      if (dir.includes("x")) {
-        width = onRight ? width - dx : width + dx;
-      }
+        if (dir.includes("y")) {
+          height = onBottom ? height - dy : height + dy;
+        }
 
-      if (dir.includes("y")) {
-        height = onBottom ? height - dy : height + dy;
-      }
+        width = Math.max(minSize.w, Math.min(maxSize.w, width));
+        height = Math.max(minSize.h, Math.min(maxSize.h, height));
 
-      width = Math.max(minSize.w, Math.min(maxSize.w, width));
-      height = Math.max(minSize.h, Math.min(maxSize.h, height));
+        return { width, height };
+      });
+    };
 
-      return { width, height };
-    });
-  };
+    const onUp = () => {
+      isResizing.current = null;
+      document.body.style.cursor = "default";
+    };
 
-  const onUp = () => {
-    isResizing.current = null;
-    document.body.style.cursor = "default";
-  };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [position]);
 
-  window.addEventListener("mousemove", onMove);
-  window.addEventListener("mouseup", onUp);
-  return () => {
-    window.removeEventListener("mousemove", onMove);
-    window.removeEventListener("mouseup", onUp);
-  };
-}, [position]);
+  if (themeLoading) return null;
+  if (!tenantKey) return null;
+  if (!isEnabled) return null;
 
-if (themeLoading) return null;
-if (!tenantKey) return null;
   return (
     <div
       style={{
@@ -667,7 +589,7 @@ if (!tenantKey) return null;
       }}
     >
       {/* Floating Button */}
-      <div className="fixed z-50" style={btnPos}>
+      <div className="fixed z-50 pointer-events-auto" style={btnPos}>
         {hover && !open && (
           <div
             className="absolute z-50"
@@ -694,14 +616,24 @@ if (!tenantKey) return null;
         <div
           ref={widgetRef}
           className="rounded-full flex items-center justify-center bg-white p-1 border border-gray-200"
-          style={{ borderRadius: "var(--radius)",}}
+          style={{ borderRadius: "var(--radius)" }}
         >
           <button
             onMouseEnter={() => setHover(true)}
             onMouseLeave={() => setHover(false)}
-            onClick={() => setOpen((v) => !v)}
-            className="w-10 h-10  flex items-center justify-center transition-all duration-300 overflow-hidden"
-            style={{ background: "var(--fabBg)", color: "var(--bodyBg)" , borderRadius: "var(--radius)",}}
+            onClick={() => {
+              if (!open) {
+                openModal();
+              } else {
+                closeChat();
+              }
+            }}
+            className="w-10 h-10 flex items-center justify-center transition-all duration-300 overflow-hidden"
+            style={{
+              background: "var(--fabBg)",
+              color: "var(--bodyBg)",
+              borderRadius: "var(--radius)",
+            }}
             title="Chat"
           >
             {chatIconUrl ? (
@@ -723,7 +655,8 @@ if (!tenantKey) return null;
           className="fixed z-50 flex flex-col items-end justify-end pointer-events-none"
           style={{
             ...modalPos,
-            width: window.innerWidth >= 1024 ? `${dimensions.width}px` : "360px",
+            width:
+              window.innerWidth >= 1024 ? `${dimensions.width}px` : "360px",
           }}
         >
           <div
@@ -731,7 +664,6 @@ if (!tenantKey) return null;
             className="relative overflow-hidden shadow-2xl rounded-xl w-full pointer-events-auto"
             style={{
               background: "var(--panelBg)",
-              // borderRadius: "var(--radius)",
               height:
                 window.innerWidth >= 1024
                   ? `${dimensions.height + 120}px`
@@ -739,53 +671,58 @@ if (!tenantKey) return null;
             }}
           >
             {/* Resize Handles - only desktop */}
-<div className="hidden lg:block">
-  {/* Horizontal resize */}
-  <div
-    className="absolute top-0 h-full w-2 z-[70]"
-    style={{
-      cursor: "ew-resize",
-      ...(position.includes("right") ? { left: 0 } : { right: 0 }),
-    }}
-    onMouseDown={(e) => {
-      e.preventDefault();
-      isResizing.current = "x";
-      lastMouseRef.current = { x: e.clientX, y: e.clientY };
-      document.body.style.cursor = "ew-resize";
-    }}
-  />
+            <div className="hidden lg:block">
+              {/* Horizontal resize */}
+              <div
+                className="absolute top-0 h-full w-2 z-[70]"
+                style={{
+                  cursor: "ew-resize",
+                  ...(position.includes("right") ? { left: 0 } : { right: 0 }),
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  isResizing.current = "x";
+                  lastMouseRef.current = { x: e.clientX, y: e.clientY };
+                  document.body.style.cursor = "ew-resize";
+                }}
+              />
 
-  {/* Vertical resize */}
-  <div
-    className="absolute left-0 w-full h-2 z-[70]"
-    style={{
-      cursor: "ns-resize",
-      ...(position.includes("bottom") ? { top: 0 } : { bottom: 0 }),
-    }}
-    onMouseDown={(e) => {
-      e.preventDefault();
-      isResizing.current = "y";
-      lastMouseRef.current = { x: e.clientX, y: e.clientY };
-      document.body.style.cursor = "ns-resize";
-    }}
-  />
+              {/* Vertical resize */}
+              <div
+                className="absolute left-0 w-full h-2 z-[70]"
+                style={{
+                  cursor: "ns-resize",
+                  ...(position.includes("bottom")
+                    ? { top: 0 }
+                    : { bottom: 0 }),
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  isResizing.current = "y";
+                  lastMouseRef.current = { x: e.clientX, y: e.clientY };
+                  document.body.style.cursor = "ns-resize";
+                }}
+              />
 
-  {/* Corner resize */}
-  <div
-    className="absolute w-4 h-4 z-[80]"
-    style={{
-      cursor: "nwse-resize",
-      ...(position.includes("right") ? { left: 0 } : { right: 0 }),
-      ...(position.includes("bottom") ? { top: 0 } : { bottom: 0 }),
-    }}
-    onMouseDown={(e) => {
-      e.preventDefault();
-      isResizing.current = "xy";
-      lastMouseRef.current = { x: e.clientX, y: e.clientY };
-      document.body.style.cursor = "nwse-resize";
-    }}
-  />
-</div>
+              {/* Corner resize */}
+              <div
+                className="absolute w-4 h-4 z-[80]"
+                style={{
+                  cursor: "nwse-resize",
+                  ...(position.includes("right") ? { left: 0 } : { right: 0 }),
+                  ...(position.includes("bottom")
+                    ? { top: 0 }
+                    : { bottom: 0 }),
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  isResizing.current = "xy";
+                  lastMouseRef.current = { x: e.clientX, y: e.clientY };
+                  document.body.style.cursor = "nwse-resize";
+                }}
+              />
+            </div>
+
             {/* Header */}
             <div
               className="p-4 flex justify-between text-white"
@@ -809,8 +746,8 @@ if (!tenantKey) return null;
                 </div>
               </div>
               <div className="flex gap-2 items-center">
-                <button onClick={() => setOpen(false)}>
-                  <Minus size={16} className="cursor-pointer"/>
+                <button onClick={closeChat}>
+                  <Minus size={16} className="cursor-pointer" />
                 </button>
                 <button onClick={closeChat}>
                   <X size={16} className="cursor-pointer" />
@@ -825,7 +762,9 @@ if (!tenantKey) return null;
               style={{
                 background: "var(--bodyBg)",
                 height:
-                  window.innerWidth >= 1024 ? `${dimensions.height}px` : "360px",
+                  window.innerWidth >= 1024
+                    ? `${dimensions.height}px`
+                    : "360px",
               }}
             >
               {loadingIntro && messages.length === 0 ? (
@@ -935,7 +874,6 @@ if (!tenantKey) return null;
                   style={{
                     background: "var(--searchbar)",
                     color: "var(--searchbarText)",
-                    // borderRadius: "var(--radius)",
                   }}
                   placeholder={inputPlaceholder}
                 />
@@ -944,11 +882,10 @@ if (!tenantKey) return null;
                   className="p-2 rounded-lg text-white shadow-sm"
                   style={{
                     background: "var(--primary)",
-                    // borderRadius: "var(--radius)",
                   }}
                   disabled={!input.trim()}
                 >
-                  <MessageSquareIcon size={16} className="cursor-pointer"/>
+                  <MessageSquareIcon size={16} className="cursor-pointer" />
                 </button>
               </div>
             </div>
