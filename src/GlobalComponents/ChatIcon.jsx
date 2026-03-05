@@ -124,6 +124,7 @@ export default function SupportChatWidget({ tenantKey = "" }) {
   const typingTimerRef = useRef(null);
   const hasReceivedFirstMessageRef = useRef(false);
   const introTimerRef = useRef(null);
+  const hasShownWelcomeRef = useRef(false);
 
   const [isConnected, setIsConnected] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
@@ -150,7 +151,11 @@ export default function SupportChatWidget({ tenantKey = "" }) {
     try {
       const savedMessages = localStorage.getItem(STORAGE_KEYS.messages);
       if (savedMessages) {
-        setMessages(JSON.parse(savedMessages));
+        const parsed = JSON.parse(savedMessages);
+        setMessages(parsed);
+        if (parsed.length > 0) {
+          hasShownWelcomeRef.current = true;
+        }
       }
     } catch (err) {
       console.error("[Widget] Failed to load messages from storage:", err);
@@ -470,18 +475,11 @@ export default function SupportChatWidget({ tenantKey = "" }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantKey]);
 
-  // ✅ Boot behavior - only show loading if no messages exist
+  // ✅ Boot behavior - ALWAYS show loading and welcome message on first open
   useEffect(() => {
     if (!open) return;
 
-    // If we already have messages, don't show loading
-    if (messages.length > 0) {
-      setLoadingIntro(false);
-      return;
-    }
-
-    // If websocket is already connected, don't show loading
-    if (isConnected) {
+    if (messages.length > 0 && hasShownWelcomeRef.current) {
       setLoadingIntro(false);
       return;
     }
@@ -491,8 +489,10 @@ export default function SupportChatWidget({ tenantKey = "" }) {
 
     introTimerRef.current = setTimeout(() => {
       setLoadingIntro(false);
+
       setMessages((prev) => {
         if (prev.length > 0) return prev;
+        hasShownWelcomeRef.current = true;
         return [
           ...prev,
           { id: uid(), sender: "ai", text: welcomeMessage, time: timeNow() },
@@ -504,21 +504,13 @@ export default function SupportChatWidget({ tenantKey = "" }) {
       if (introTimerRef.current) clearTimeout(introTimerRef.current);
       introTimerRef.current = null;
     };
-  }, [open, welcomeMessage, messages.length, isConnected]);
-
-  // ✅ OPEN MODAL function
-  const openModal = () => {
-    setOpen(true);
-    notifyParent("CW_MODAL_OPEN");
-  };
+  }, [open, welcomeMessage]);
 
   // ✅ MINIMIZE - Close modal but keep chat & websocket
   const minimizeChat = () => {
     timers.current.forEach(clearTimeout);
     timers.current = [];
     setOpen(false);
-    // ✅ DON'T clear messages
-    // ✅ DON'T disconnect websocket
     notifyParent("CW_MODAL_CLOSE");
   };
 
@@ -527,24 +519,29 @@ export default function SupportChatWidget({ tenantKey = "" }) {
     timers.current.forEach(clearTimeout);
     timers.current = [];
     setOpen(false);
-    
-    // ✅ Clear messages from state
+
     setMessages([]);
-    
-    // ✅ Clear messages from localStorage
+
     try {
       localStorage.removeItem(STORAGE_KEYS.messages);
     } catch (err) {
       console.error("[Widget] Failed to clear messages from storage:", err);
     }
-    
+
     setInput("");
     setLoadingIntro(false);
-    
-    // ✅ Disconnect websocket
+
+    hasShownWelcomeRef.current = false;
+
     disconnectWS();
-    
+
     notifyParent("CW_MODAL_CLOSE");
+  };
+
+  // ✅ OPEN MODAL function
+  const openModal = () => {
+    setOpen(true);
+    notifyParent("CW_MODAL_OPEN");
   };
 
   const sendMessage = (text) => {
@@ -579,6 +576,34 @@ export default function SupportChatWidget({ tenantKey = "" }) {
       })
     );
   };
+
+  // ✅ Outside click to minimize modal
+  useEffect(() => {
+    if (!open) return;
+
+    const handleClickOutside = (e) => {
+      // Check if click is outside both the modal AND the FAB button
+      if (
+        modalRef.current &&
+        !modalRef.current.contains(e.target) &&
+        widgetRef.current &&
+        !widgetRef.current.contains(e.target)
+      ) {
+        minimizeChat();
+      }
+    };
+
+    // Add a small delay before attaching the listener
+    // This prevents the modal from immediately closing when opened
+    const timeoutId = setTimeout(() => {
+      document.addEventListener("mousedown", handleClickOutside);
+    }, 100);
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [open]);
 
   // ------- Resize handling -------
   useEffect(() => {
@@ -758,7 +783,6 @@ export default function SupportChatWidget({ tenantKey = "" }) {
           >
             {/* Resize Handles - only desktop */}
             <div className="hidden lg:block">
-              {/* Horizontal resize */}
               <div
                 className="absolute top-0 h-full w-2 z-[70]"
                 style={{
@@ -773,7 +797,6 @@ export default function SupportChatWidget({ tenantKey = "" }) {
                 }}
               />
 
-              {/* Vertical resize */}
               <div
                 className="absolute left-0 w-full h-2 z-[70]"
                 style={{
@@ -788,7 +811,6 @@ export default function SupportChatWidget({ tenantKey = "" }) {
                 }}
               />
 
-              {/* Corner resize */}
               <div
                 className="absolute w-4 h-4 z-[80]"
                 style={{
@@ -828,11 +850,9 @@ export default function SupportChatWidget({ tenantKey = "" }) {
                 </div>
               </div>
               <div className="flex gap-2 items-center">
-                {/* ✅ MINIMIZE BUTTON - Keep chat & websocket */}
                 <button onClick={minimizeChat} title="Minimize">
                   <Minus size={16} className="cursor-pointer" />
                 </button>
-                {/* ✅ CLOSE BUTTON - Clear chat & disconnect */}
                 <button onClick={closeChat} title="Close">
                   <X size={16} className="cursor-pointer" />
                 </button>
@@ -912,7 +932,6 @@ export default function SupportChatWidget({ tenantKey = "" }) {
                     </div>
                   ))}
 
-                  {/* Typing indicator (AI) */}
                   {isTyping && (
                     <div className="mb-3 text-left">
                       <div className="flex items-center gap-2 mb-1">
