@@ -539,10 +539,16 @@ export default function SupportChatWidget({ tenantKey = "" }) {
   };
 
   // ✅ OPEN MODAL function
-  const openModal = () => {
-    setOpen(true);
-    notifyParent("CW_MODAL_OPEN");
-  };
+const openModal = () => {
+  setOpen(true);
+  notifyParent("CW_MODAL_OPEN");
+
+  // Reconnect WebSocket if needed
+  if (!wsRef.current || wsRef.current.readyState > 1) {
+    shouldReconnectRef.current = true; // allow reconnects
+    connectWS();
+  }
+};
 
   const sendMessage = (text) => {
     const content = (text || "").trim();
@@ -561,7 +567,7 @@ export default function SupportChatWidget({ tenantKey = "" }) {
         {
           id: uid(),
           sender: "ai",
-          text: "⚠️ Not connected yet. Please try again in a moment.",
+          text: "Not connected yet. Please try again in a moment.",
           time: timeNow(),
         },
       ]);
@@ -917,14 +923,7 @@ export default function SupportChatWidget({ tenantKey = "" }) {
                       <div
                         className="inline-block px-3 py-1 rounded-lg text-xs"
                         style={{
-                          background:
-                            m.sender === "user"
-                              ? "var(--userBubbleBg)"
-                              : "var(--aiBubbleBg)",
-                          color:
-                            m.sender === "user"
-                              ? "var(--userBubbleText)"
-                              : "var(--aiBubbleText)",
+                          background:"#f3f0ff",
                         }}
                       >
                         {m.text}
@@ -973,7 +972,6 @@ export default function SupportChatWidget({ tenantKey = "" }) {
                   onKeyDown={(e) => e.key === "Enter" && sendMessage(input)}
                   className="flex-1 px-3 py-2 rounded-md outline-none text-xs border border-gray-100"
                   style={{
-                    background: "var(--searchbar)",
                     color: "var(--searchbarText)",
                   }}
                   placeholder={inputPlaceholder}
