@@ -1,4 +1,15 @@
-import { Bot, MessageSquareIcon, Minus, User, X } from "lucide-react";
+import {
+  Bot,
+  MessageSquareIcon,
+  Minus,
+  User,
+  X,
+  MessageCircle,
+  MessageSquare,
+  MessageSquareDot,
+  Send,
+  MessageCircleHeart
+} from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 /* --------------------------------
@@ -41,6 +52,13 @@ const THEMES = {
   },
 };
 
+const externalIconsMap = {
+  4: MessageCircle,
+  5: MessageSquare,
+  6: MessageSquareDot,
+  7: Send,
+  8: MessageCircleHeart,
+};
 const uid = () => Math.random().toString(16).slice(2);
 const timeNow = () =>
   new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -109,6 +127,9 @@ export default function SupportChatWidget({ tenantKey = "" }) {
   const [themeLoading, setThemeLoading] = useState(true);
   const [widgetCfg, setWidgetCfg] = useState(null);
   const [chatIconUrl, setChatIconUrl] = useState("");
+
+  const [isExternalIcon, setIsExternalIcon] = useState(false);
+  const [externalIconId, setExternalIconId] = useState(null);
 
   const [open, setOpen] = useState(false);
   const [hover, setHover] = useState(false);
@@ -200,7 +221,10 @@ export default function SupportChatWidget({ tenantKey = "" }) {
         if (!cancelled) {
           setWidgetCfg(widget);
           setRemoteTheme(theme);
+
           setChatIconUrl(normalizeMediaUrl(json?.data?.chat_icon_url || ""));
+          setIsExternalIcon(json?.data?.is_external_icon || false);
+          setExternalIconId(json?.data?.external_icon_id || null);
         }
       } catch (err) {
         console.error("[Widget] Theme fetch failed:", err);
@@ -539,16 +563,16 @@ export default function SupportChatWidget({ tenantKey = "" }) {
   };
 
   // ✅ OPEN MODAL function
-const openModal = () => {
-  setOpen(true);
-  notifyParent("CW_MODAL_OPEN");
+  const openModal = () => {
+    setOpen(true);
+    notifyParent("CW_MODAL_OPEN");
 
-  // Reconnect WebSocket if needed
-  if (!wsRef.current || wsRef.current.readyState > 1) {
-    shouldReconnectRef.current = true; // allow reconnects
-    connectWS();
-  }
-};
+    // Reconnect WebSocket if needed
+    if (!wsRef.current || wsRef.current.readyState > 1) {
+      shouldReconnectRef.current = true; // allow reconnects
+      connectWS();
+    }
+  };
 
   const sendMessage = (text) => {
     const content = (text || "").trim();
@@ -752,7 +776,17 @@ const openModal = () => {
             }}
             title="Chat"
           >
-            {chatIconUrl ? (
+            {isExternalIcon ? (
+              (() => {
+                const IconComponent = externalIconsMap[externalIconId];
+
+                return IconComponent ? (
+                  <IconComponent size={18} />
+                ) : (
+                  <MessageSquareIcon size={20} />
+                );
+              })()
+            ) : chatIconUrl ? (
               <img
                 src={chatIconUrl}
                 alt="Chat"
@@ -840,7 +874,20 @@ const openModal = () => {
             >
               <div className="flex justify-start gap-2 items-center">
                 <div className="p-2 rounded-full text-white ">
-                  <MessageSquareIcon size={20} />
+                  {isExternalIcon ? (
+                    (() => {
+                      const IconComponent = externalIconsMap[externalIconId];
+                      return IconComponent ? <IconComponent size={20} /> : <MessageSquareIcon size={20} />;
+                    })()
+                  ) : chatIconUrl ? (
+                    <img
+                      src={chatIconUrl}
+                      alt="Chat"
+                      style={{ width: 20, height: 20, objectFit: "contain" }}
+                    />
+                  ) : (
+                    <MessageSquareIcon size={20} />
+                  )}
                 </div>
                 <div>
                   <div className="font-semibold text-sm">Techween Support</div>
@@ -888,14 +935,12 @@ const openModal = () => {
                   {messages.map((m) => (
                     <div
                       key={m.id}
-                      className={`mb-3 ${
-                        m.sender === "user" ? "text-right" : "text-left"
-                      }`}
+                      className={`mb-3 ${m.sender === "user" ? "text-right" : "text-left"
+                        }`}
                     >
                       <div
-                        className={`flex items-center gap-2 mb-1 ${
-                          m.sender === "user" ? "flex-row-reverse" : "flex-row"
-                        }`}
+                        className={`flex items-center gap-2 mb-1 ${m.sender === "user" ? "flex-row-reverse" : "flex-row"
+                          }`}
                       >
                         <div
                           className="w-5 h-5 flex items-center justify-center rounded-md text-white"
@@ -923,7 +968,7 @@ const openModal = () => {
                       <div
                         className="inline-block px-3 py-1 rounded-lg text-xs"
                         style={{
-                          background:"#f3f0ff",
+                          background: "#f3f0ff",
                         }}
                       >
                         {m.text}
